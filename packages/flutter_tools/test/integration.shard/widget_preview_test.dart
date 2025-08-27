@@ -20,16 +20,22 @@ import '../src/context.dart';
 import 'test_data/basic_project.dart';
 import 'test_utils.dart';
 
-const firstLaunchMessagesWeb = <String>[
+final launchingOnDeviceRegExp = RegExp(r'Launching the Widget Preview Scaffold on [a-zA-Z]+...');
+
+final firstLaunchMessagesWeb = <Pattern>[
   'Creating widget preview scaffolding at:',
-  'Launching the Widget Preview Scaffold...',
+  launchingOnDeviceRegExp,
   'Done loading previews.',
 ];
 
-const subsequentLaunchMessagesWeb = <String>[
-  'Launching the Widget Preview Scaffold...',
+final firstLaunchMessagesWebServer = <Pattern>[
+  'Creating widget preview scaffolding at:',
+  launchingOnDeviceRegExp,
+  'main.dart is being served at',
   'Done loading previews.',
 ];
+
+final subsequentLaunchMessagesWeb = <Pattern>[launchingOnDeviceRegExp, 'Done loading previews.'];
 
 void main() {
   late Directory tempDir;
@@ -53,7 +59,11 @@ void main() {
     tryToDelete(tempDir);
   });
 
-  Future<void> runWidgetPreview({required List<String> expectedMessages, Uri? dtdUri}) async {
+  Future<void> runWidgetPreview({
+    required List<Pattern> expectedMessages,
+    Uri? dtdUri,
+    bool useWebServer = false,
+  }) async {
     expect(expectedMessages, isNotEmpty);
     var i = 0;
     process = await processManager.start(<String>[
@@ -62,6 +72,7 @@ void main() {
       'start',
       '--verbose',
       '--${WidgetPreviewStartCommand.kHeadless}',
+      if (useWebServer) '--${WidgetPreviewStartCommand.kWebServer}',
       if (dtdUri != null) '--${FlutterGlobalOptions.kDtdUrl}=$dtdUri',
     ], workingDirectory: tempDir.path);
 
@@ -99,6 +110,10 @@ void main() {
   group('flutter widget-preview start', () {
     testWithoutContext('smoke test', () async {
       await runWidgetPreview(expectedMessages: firstLaunchMessagesWeb);
+    });
+
+    testWithoutContext('--web-server starts a web server instance', () async {
+      await runWidgetPreview(expectedMessages: firstLaunchMessagesWebServer, useWebServer: true);
     });
 
     testWithoutContext('does not recreate project on subsequent runs', () async {

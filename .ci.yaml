@@ -348,7 +348,8 @@ targets:
       shard: analyze
       dependencies: >-
         [
-          {"dependency": "ktlint", "version": "version_1_5_0"}
+          {"dependency": "ktlint", "version": "version_1_5_0"},
+          {"dependency": "open_jdk", "version": "version:21"}
         ]
       tags: >
         ["framework","hostonly","shard","linux"]
@@ -589,10 +590,8 @@ targets:
         ]
       tags: >
         ["framework", "hostonly", "linux"]
-      validation: docs
-      validation_name: Docs
-      firebase_project: main-docs-flutter-prod
-      release_ref: refs/heads/master
+      docs: >
+        {"build": "master", "deploy": "main-docs-flutter-prod"}
     drone_dimensions:
       - os=Linux
 
@@ -615,13 +614,8 @@ targets:
         ]
       tags: >
         ["framework", "hostonly", "linux"]
-      validation: docs
-      validation_name: Docs
-      # TODO(matanlurey): Neither of these properties are actually used, since
-      # the branch name is not "master", but if they are removed, the recipe
-      # will fail. See https://github.com/flutter/flutter/issues/169108.
-      firebase_project: main-docs-flutter-prod
-      release_ref: refs/heads/master
+      docs: >
+        {"build": "stable"}
     drone_dimensions:
       - os=Linux
 
@@ -647,9 +641,8 @@ targets:
         ]
       tags: >
         ["framework", "hostonly", "linux"]
-      validation: docs_deploy
-      validation_name: Docs_deploy
-      firebase_project: docs-flutter-dev
+      docs: >
+        {"post_process": "stable", "deploy": "docs-flutter-dev"}
     drone_dimensions:
       - os=Linux
 
@@ -1186,7 +1179,6 @@ targets:
   - name: Linux linux_feature_flags_test
     recipe: devicelab/devicelab_drone
     timeout: 60
-    bringup: true
     presubmit: false
     properties:
       xvfb: "1"
@@ -1528,7 +1520,7 @@ targets:
       - engine/**
       - DEPS
 
-  - name: Linux android_java11_tool_integration_tests
+  - name: Linux android_java17_tool_integration_tests
     recipe: flutter/flutter_drone
     timeout: 60
     properties:
@@ -1541,9 +1533,9 @@ targets:
           {"dependency": "cmake", "version": "build_id:8787856497187628321"},
           {"dependency": "goldctl", "version": "git_revision:2387d6fff449587eecbb7e45b2692ca0710b63b9"},
           {"dependency": "ninja", "version": "version:1.9.0"},
-          {"dependency": "open_jdk", "version": "version:11"}
+          {"dependency": "open_jdk", "version": "version:17"}
         ]
-      shard: android_java11_tool_integration_tests
+      shard: android_java17_tool_integration_tests
       tags: >
         ["framework", "hostonly", "shard", "linux"]
       test_timeout_secs: "2700"
@@ -2336,20 +2328,10 @@ targets:
   - name: Linux_android_emu_unstable android_defines_test
     recipe: devicelab/devicelab_drone
     timeout: 60
-    bringup: true
     properties:
       tags: >
         ["devicelab", "linux"]
       task_name: android_defines_test
-
-  - name: Linux_pixel_7pro android_obfuscate_test
-    recipe: devicelab/devicelab_drone
-    presubmit: false
-    timeout: 60
-    properties:
-      tags: >
-        ["devicelab", "android", "linux", "pixel", "7pro"]
-      task_name: android_obfuscate_test
 
   - name: Linux_pixel_7pro android_semantics_integration_test
     recipe: devicelab/devicelab_drone
@@ -3048,7 +3030,6 @@ targets:
       task_name: image_list_reported_duration
 
   - name: Linux_pixel_7pro integration_ui_driver
-    bringup: true # Flaky https://github.com/flutter/flutter/issues/167638
     recipe: devicelab/devicelab_drone
     presubmit: false
     timeout: 60
@@ -3135,7 +3116,6 @@ targets:
 
   # linux mokey benchmark
   - name: Linux_mokey new_gallery__crane_perf
-    bringup: true # Flaky https://github.com/flutter/flutter/issues/165963
     recipe: devicelab/devicelab_drone
     presubmit: false
     timeout: 60
@@ -5104,7 +5084,6 @@ targets:
   - name: Mac_arm64_ios imitation_game_flutter
     recipe: devicelab/devicelab_drone
     presubmit: false
-    bringup: true
     timeout: 60
     properties:
       tags: >
@@ -5503,6 +5482,16 @@ targets:
         ["devicelab", "hostonly", "mac"]
       task_name: hot_mode_dev_cycle_ios_simulator
 
+  - name: Mac_ios hot_mode_dev_cycle_ios_xcode_debug
+    recipe: devicelab/devicelab_drone
+    bringup: true
+    presubmit: false
+    timeout: 60
+    properties:
+      tags: >
+        ["devicelab", "ios", "mac"]
+      task_name: hot_mode_dev_cycle_ios_xcode_debug
+
   - name: Mac_ios fullscreen_textfield_perf_ios__e2e_summary
     recipe: devicelab/devicelab_drone
     presubmit: false
@@ -5698,7 +5687,6 @@ targets:
 
   - name: Mac_ios keyboard_hot_restart_ios
     recipe: devicelab/devicelab_drone
-    bringup: true
     presubmit: false
     timeout: 60
     properties:
@@ -6212,7 +6200,6 @@ targets:
       - DEPS
 
   - name: Windows plugin_test
-    bringup: true # Flaky https://github.com/flutter/flutter/issues/148834
     recipe: devicelab/devicelab_drone
     timeout: 60
     properties:

@@ -5,6 +5,7 @@
 import 'dart:async';
 
 import 'package:args/args.dart';
+import 'package:collection/collection.dart';
 import 'package:meta/meta.dart';
 import 'package:package_config/package_config.dart';
 import 'package:process/process.dart';
@@ -26,6 +27,7 @@ import '../project.dart';
 import '../resident_runner.dart';
 import '../runner/flutter_command.dart';
 import '../runner/flutter_command_runner.dart';
+import '../web/web_device.dart';
 import '../widget_preview/analytics.dart';
 import '../widget_preview/dependency_graph.dart';
 import '../widget_preview/dtd_services.dart';
@@ -77,11 +79,6 @@ class WidgetPreviewCommand extends FlutterCommand {
 
   @override
   String get category => FlutterCommandCategory.tools;
-
-  // TODO(bkonyi): show when --verbose is not provided when this feature is
-  // ready to ship.
-  @override
-  bool get hidden => true;
 
   @override
   Future<FlutterCommandResult> runCommand() async => FlutterCommandResult.fail();
@@ -138,6 +135,12 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
     addPubOptions();
     argParser
       ..addFlag(
+        kWebServer,
+        help:
+            'Serve the widget preview environment using the web-server device instead of the '
+            'browser.',
+      )
+      ..addFlag(
         kLaunchPreviewer,
         defaultsTo: true,
         help: 'Launches the widget preview environment.',
@@ -150,16 +153,23 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
         help:
             'Generated the widget preview environment scaffolding at a given location '
             'for testing purposes.',
+        hide: !verbose,
       );
   }
 
   static const kWidgetPreviewScaffoldName = 'widget_preview_scaffold';
   static const kLaunchPreviewer = 'launch-previewer';
   static const kHeadless = 'headless';
+  static const kWebServer = 'web-server';
   static const kWidgetPreviewScaffoldOutputDir = 'scaffold-output-dir';
 
   /// Environment variable used to pass the DTD URI to the widget preview scaffold.
   static const kWidgetPreviewDtdUriEnvVar = 'WIDGET_PREVIEW_DTD_URI';
+
+  @visibleForTesting
+  static const kBrowserNotFoundErrorMessage =
+      'Failed to locate browser. Make sure you are using an up-to-date Chrome or Edge. '
+      'Otherwise, consider running with --$kWebServer instead.';
 
   @override
   Future<Set<DevelopmentArtifact>> get requiredArtifacts async => const <DevelopmentArtifact>{
@@ -209,6 +219,7 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
   );
 
   late final _previewDetector = PreviewDetector(
+    platform: platform,
     previewAnalytics: previewAnalytics,
     projectRoot: rootProject.directory,
     logger: logger,
@@ -302,12 +313,14 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
       await _previewPubspecBuilder.populatePreviewPubspec(rootProject: rootProject);
     }
 
+    shutdownHooks.addShutdownHook(() async {
+      await _widgetPreviewApp?.exitApp();
+      await _previewDetector.dispose();
+    });
+
     final PreviewDependencyGraph graph = await _previewDetector.initialize();
     _previewCodeGenerator.populatePreviewsInGeneratedPreviewScaffold(graph);
 
-    shutdownHooks.addShutdownHook(() async {
-      await _widgetPreviewApp?.exitApp();
-    });
     await configureDtd();
     final int result = await runPreviewEnvironment(
       widgetPreviewScaffoldProject: rootProject.widgetPreviewScaffoldProject,
@@ -316,7 +329,6 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
       throwToolExit('Failed to launch the widget previewer.', exitCode: result);
     }
 
-    await _previewDetector.dispose();
     return FlutterCommandResult.success();
   }
 
@@ -358,21 +370,50 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
 
   Future<int> runPreviewEnvironment({required FlutterProject widgetPreviewScaffoldProject}) async {
     try {
-      // Since the only target supported by the widget preview scaffold is the web
-      // device, only a single web device should be returned.
-      final List<Device> devices = await deviceManager!.getDevices(
-        filter: DeviceDiscoveryFilter(
-          supportFilter: DeviceDiscoverySupportFilter.excludeDevicesUnsupportedByFlutterOrProject(
-            flutterProject: widgetPreviewScaffoldProject,
+      final Device device;
+      if (boolArg(kWebServer)) {
+        final List<Device> devices;
+        try {
+          // The web-server device is hidden by default, make it visible before trying to look it up.
+          WebServerDevice.showWebServerDevice = true;
+          devices = await deviceManager!.getDevicesById(WebServerDevice.kWebServerDeviceId);
+        } finally {
+          // Reset the flag to false to avoid affecting other commands.
+          WebServerDevice.showWebServerDevice = false;
+        }
+        assert(devices.length == 1);
+        device = devices.single;
+      } else {
+        // Since the only target supported by the widget preview scaffold is the web
+        // device, only a single web device should be returned.
+        final List<Device> devices = await deviceManager!.getDevices(
+          filter: DeviceDiscoveryFilter(
+            supportFilter: DeviceDiscoverySupportFilter.excludeDevicesUnsupportedByFlutterOrProject(
+              flutterProject: widgetPreviewScaffoldProject,
+            ),
+            deviceConnectionInterface: DeviceConnectionInterface.attached,
           ),
-          deviceConnectionInterface: DeviceConnectionInterface.attached,
-        ),
-      );
-      assert(devices.length == 1);
-      final Device device = devices.first;
+        );
+
+        if (devices.isEmpty) {
+          throwToolExit(kBrowserNotFoundErrorMessage);
+        }
+        if (devices.length > 1) {
+          // Prefer Google Chrome as the target browser.
+          device =
+              devices.firstWhereOrNull((device) => device is GoogleChromeDevice) ?? devices.first;
+
+          logger.printTrace(
+            'Detected ${devices.length} web devices (${devices.map((e) => e.displayName).join(', ')}). '
+            'Defaulting to ${device.displayName}.',
+          );
+        } else {
+          device = devices.single;
+        }
+      }
 
       // WARNING: this log message is used by test/integration.shard/widget_preview_test.dart
-      logger.printStatus('Launching the Widget Preview Scaffold...');
+      logger.printStatus('Launching the Widget Preview Scaffold on ${device.displayName}...');
 
       final debuggingOptions = DebuggingOptions.enabled(
         BuildInfo(
